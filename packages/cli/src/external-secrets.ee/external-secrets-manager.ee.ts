@@ -1,7 +1,8 @@
+import { Logger } from '@n8n/backend-common';
 import { SettingsRepository } from '@n8n/db';
-import { OnShutdown } from '@n8n/decorators';
+import { OnPubSubEvent, OnShutdown } from '@n8n/decorators';
 import { Service } from '@n8n/di';
-import { Cipher, Logger } from 'n8n-core';
+import { Cipher, type IExternalSecretsManager } from 'n8n-core';
 import { jsonParse, type IDataObject, ensureError, UnexpectedError } from 'n8n-workflow';
 
 import { EventService } from '@/events/event.service';
@@ -18,7 +19,7 @@ import { ExternalSecretsConfig } from './external-secrets.config';
 import type { ExternalSecretsSettings, SecretsProvider, SecretsProviderSettings } from './types';
 
 @Service()
-export class ExternalSecretsManager {
+export class ExternalSecretsManager implements IExternalSecretsManager {
 	private providers: Record<string, SecretsProvider> = {};
 
 	private initializingPromise?: Promise<void>;
@@ -27,9 +28,9 @@ export class ExternalSecretsManager {
 
 	initialized = false;
 
-	updateInterval: NodeJS.Timer;
+	updateInterval: NodeJS.Timeout;
 
-	initRetryTimeouts: Record<string, NodeJS.Timer> = {};
+	initRetryTimeouts: Record<string, NodeJS.Timeout> = {};
 
 	constructor(
 		private readonly logger: Logger,
@@ -76,6 +77,7 @@ export class ExternalSecretsManager {
 		this.logger.debug('External secrets manager shut down');
 	}
 
+	@OnPubSubEvent('reload-external-secrets-providers')
 	async reloadAllProviders(backoff?: number) {
 		this.logger.debug('Reloading all external secrets providers');
 		const providers = this.getProviderNames();
@@ -209,7 +211,7 @@ export class ExternalSecretsManager {
 		return provider in this.providers;
 	}
 
-	getProviderNames(): string[] | undefined {
+	getProviderNames(): string[] {
 		return Object.keys(this.providers);
 	}
 
@@ -221,8 +223,8 @@ export class ExternalSecretsManager {
 		return this.getProvider(provider)?.hasSecret(name) ?? false;
 	}
 
-	getSecretNames(provider: string): string[] | undefined {
-		return this.getProvider(provider)?.getSecretNames();
+	getSecretNames(provider: string): string[] {
+		return this.getProvider(provider)?.getSecretNames() ?? [];
 	}
 
 	getAllSecretNames(): Record<string, string[]> {
